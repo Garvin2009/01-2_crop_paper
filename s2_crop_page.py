@@ -185,7 +185,7 @@ def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_p
 
 
 if __name__ == "__main__":
-    image_folder = "/home/cyantus/repo/01-2_crop_paper/1125900**" #輸入你的rotated資料夾路徑
+    image_folder = "../01-2_crop_paper/1125900**" #輸入你的rotated資料夾路徑
     start_page = int(input("Enter start page: "))  # 起始頁數
     end_page = int(input("Enter end page: "))      # 結束頁數
     min_box_size = 250 # 設定閾值，只保留寬和高都大於等於這個值的方框
