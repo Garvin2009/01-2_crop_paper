@@ -19,7 +19,9 @@ def scale_adjustment(word_img, img_name):
         word_img -- 文字圖片
     """
     word_img = np.array(word_img)
-    word_img_copy = cv2.copyMakeBorder(word_img, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    # 增加更大的邊框，確保大型文字有足夠空間
+    padding = 100  # 增加邊框大小
+    word_img_copy = cv2.copyMakeBorder(word_img, padding, padding, padding, padding, cv2.BORDER_CONSTANT, value=(255, 255, 255))
 
     # 二值化處理
     binary_word_img = cv2.cvtColor(word_img_copy, cv2.COLOR_BGR2GRAY) if len(word_img_copy.shape) == 3 else word_img_copy
@@ -35,22 +37,40 @@ def scale_adjustment(word_img, img_name):
     # 標註 bounding box 和質心
     annotated_img = cv2.cvtColor(word_img_copy, cv2.COLOR_GRAY2BGR) if len(word_img_copy.shape) == 2 else word_img_copy
     cv2.rectangle(annotated_img, (topLeftX, topLeftY), (topLeftX + word_w, topLeftY + word_h), (255, 168, 0), 4)
-    cv2.circle(annotated_img, (cX, cY), 10, (0, 0, 255), -1)
+    cv2.circle(annotated_img, (cX, cY), 15, (0, 0, 255), -1)
 
     # 保存標註的圖片
     annotated_img_path = os.path.join('annotated_images', f'{img_name}_annotated.png')
     os.makedirs('annotated_images', exist_ok=True)
     cv2.imwrite(annotated_img_path, annotated_img)
-    # 數值越大文字越小，數值越小文字越大
-    crop_length = 240
+    
+    # 動態調整裁剪大小，確保能完整包含文字
+    # 使用字元實際大小的1.5倍作為裁剪範圍，確保文字完整性
+    crop_size = int(max(word_w, word_h) * 1.5)
+    crop_size = max(crop_size, 240)  # 設定最小裁剪大小
+    
     h, w = word_img_copy.shape
-    left_x = max(0, cX - int(crop_length / 2))
-    right_x = min(w, cX + int(crop_length / 2))
-    top_y = max(0, cY - int(crop_length / 2))
-    bot_y = min(h, cY + int(crop_length / 2))
+    left_x = max(0, cX - crop_size // 2)
+    right_x = min(w, cX + crop_size // 2)
+    top_y = max(0, cY - crop_size // 2)
+    bot_y = min(h, cY + crop_size // 2)
+
+    # 確保裁剪區域是正方形
+    width = right_x - left_x
+    height = bot_y - top_y
+    if width > height:
+        diff = width - height
+        top_y = max(0, top_y - diff // 2)
+        bot_y = min(h, bot_y + diff // 2)
+    elif height > width:
+        diff = height - width
+        left_x = max(0, left_x - diff // 2)
+        right_x = min(w, right_x + diff // 2)
 
     final_word_img = word_img_copy[top_y:bot_y, left_x:right_x]
-    return cv2.resize(final_word_img, (300, 300), interpolation=cv2.INTER_AREA)
+    # 根據需要調整輸出大小，可能需要更大的尺寸
+    output_size = 400  # 增加輸出圖像大小
+    return cv2.resize(final_word_img, (output_size, output_size), interpolation=cv2.INTER_AREA)
 
 
 def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_path, unicode_num):
@@ -72,6 +92,12 @@ def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_p
 
         # 使用二值化處理，使方框更容易被檢測
         _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+        
+        # 增加形態學操作來去除噪點
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
         # 排除右下角的QR碼區域
         h, w = binary.shape
         qr_size = int(min(h, w) * 0.12)  # 假設QR碼大約佔圖片的12%
@@ -81,6 +107,36 @@ def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_p
 
         # 對輪廓進行處理，將 y 值相差小於 10 的視為同一行
         contours = sorted(contours, key=lambda x: (cv2.boundingRect(x)[1] // 120, cv2.boundingRect(x)[0]))
+
+        # 輪廓過濾增加更多條件
+        valid_contours = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            
+            # 排除右下角QR碼
+            if x + w > img_np.shape[1] - qr_size and y + h > img_np.shape[0] - qr_size:
+                continue
+                
+            # 面積過濾
+            area = cv2.contourArea(contour)
+            if area < min_box_size * min_box_size * 0.5:
+                continue
+                
+            # 長寬比過濾 (排除過度細長的區域)
+            aspect_ratio = float(w) / h
+            if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+                continue
+                
+            # 矩形度檢查 (實際面積與理論矩形面積的比值)
+            rect_area = w * h
+            extent = float(area) / rect_area
+            if extent < 0.6:  # 如果實際面積小於理論面積的60%，可能不是一個好的文字框
+                continue
+                
+            valid_contours.append(contour)
+
+        # 使用過濾後的輪廓
+        contours = valid_contours
 
         # 確保目錄存在
         output_directory = 'crop'
@@ -129,12 +185,12 @@ def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_p
 
 
 if __name__ == "__main__":
-    image_folder = "D:/ntut/AIcreate/01-2_crop_paper/rotated_113378043" #輸入你的rotated資料夾路徑
+    image_folder = "../01-2_crop_paper/1125900**" #輸入你的rotated資料夾路徑
     start_page = int(input("Enter start page: "))  # 起始頁數
     end_page = int(input("Enter end page: "))      # 結束頁數
     min_box_size = 250 # 設定閾值，只保留寬和高都大於等於這個值的方框
     min_area_threshold = 10
-    padding = 20  # 內縮的像素數量
+    padding = 15  # 內縮的像素數量
     json_path = "CP950.json"  # 請替換為你的 JSON 檔案路徑
     unicode_num = 5652 #請替換成製作稿紙時的文字量
 
