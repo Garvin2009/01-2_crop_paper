@@ -129,13 +129,13 @@ def crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_p
 
 
 if __name__ == "__main__":
-    image_folder = "D:/ntut/AIcreate/01-2_crop_paper/rotated_113378043" #輸入你的rotated資料夾路徑
+    image_folder = "C:/Users/User/Desktop/01-2_crop_paper-main/rotated_112590026" #輸入你的rotated資料夾路徑
     start_page = int(input("Enter start page: "))  # 起始頁數
     end_page = int(input("Enter end page: "))      # 結束頁數
     min_box_size = 250 # 設定閾值，只保留寬和高都大於等於這個值的方框
     min_area_threshold = 10
     padding = 20  # 內縮的像素數量
     json_path = "CP950.json"  # 請替換為你的 JSON 檔案路徑
-    unicode_num = 5652 #請替換成製作稿紙時的文字量
+    unicode_num = 1527 #請替換成製作稿紙時的文字量
 
     crop_boxes(image_folder, start_page, end_page, min_box_size, padding, json_path, unicode_num)
